@@ -27,7 +27,6 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, Postman)
       if (!origin) return callback(null, true);
       if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
         return callback(null, true);
@@ -52,7 +51,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Also mount at /api/health for convenience
 app.get('/api/health', (req, res) => {
   res.json({
     success: true,
@@ -63,32 +61,14 @@ app.get('/api/health', (req, res) => {
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────────
-
-// Restaurant owner auth
 app.use('/api/auth', authRoutes);
-
-// Mobile: orders
 app.use('/api/orders', orderRoutes);
-
-// Mobile: device tokens
 app.use('/api/devices', deviceRoutes);
-
-// Admin auth (login + me)
 app.use('/api/admin', adminAuthRoutes);
-
-// Admin: restaurant CRUD
 app.use('/api/admin/restaurants', adminRestaurantRoutes);
-
-// Admin: restaurant user CRUD (uses /restaurants/:id/users and /users/:id paths)
 app.use('/api/admin', adminUserRoutes);
-
-// Admin: orders
 app.use('/api/admin', adminOrderRoutes);
-
-// Cron: check paid orders and send FCM notifications
 app.use('/api/cron', cronRoutes);
-
-// Debug: inspect restaurant config and raw orders (admin auth required)
 app.use('/api/debug', debugRoutes);
 
 // ── 404 handler ───────────────────────────────────────────────────────────────
@@ -102,21 +82,40 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// ── Bootstrap ─────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 5000;
+// ── Bootstrap — works for both local and Vercel ───────────────────────────────
+let isInitialized = false;
 
-async function bootstrap() {
+async function initialize() {
+  if (isInitialized) return;
+  isInitialized = true;
   await connectCentralDB();
   initFirebase();
-
-  app.listen(PORT, () => {
-    console.log(`[Server] Restaurant Order System backend running on port ${PORT}`);
-    console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`[Server] Health check: http://localhost:${PORT}/health`);
-  });
 }
 
-bootstrap().catch((err) => {
-  console.error('[Server] Bootstrap failed:', err.message);
-  process.exit(1);
-});
+// Local development — start HTTP server
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  initialize().then(() => {
+    app.listen(PORT, () => {
+      console.log(`[Server] Restaurant Order System backend running on port ${PORT}`);
+      console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`[Server] Health check: http://localhost:${PORT}/health`);
+    });
+  }).catch((err) => {
+    console.error('[Server] Bootstrap failed:', err.message);
+    process.exit(1);
+  });
+} else {
+  // Vercel — initialize on first request
+  const originalHandler = app;
+  
+  module.exports = async (req, res) => {
+    await initialize();
+    return originalHandler(req, res);
+  };
+}
+
+// Also export app for Vercel (module.exports may be overwritten above in production)
+if (process.env.NODE_ENV !== 'production') {
+  module.exports = app;
+}
