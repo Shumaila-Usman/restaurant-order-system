@@ -82,40 +82,24 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// ── Bootstrap — works for both local and Vercel ───────────────────────────────
-let isInitialized = false;
+// ── Initialize DB and Firebase immediately (works for both local and Vercel) ──
+connectCentralDB()
+  .then(() => {
+    initFirebase();
+    console.log('[Server] Initialization complete');
+  })
+  .catch((err) => {
+    console.error('[Server] Initialization failed:', err.message);
+  });
 
-async function initialize() {
-  if (isInitialized) return;
-  isInitialized = true;
-  await connectCentralDB();
-  initFirebase();
-}
-
-// Local development — start HTTP server
+// ── Local development server ──────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
-  initialize().then(() => {
-    app.listen(PORT, () => {
-      console.log(`[Server] Restaurant Order System backend running on port ${PORT}`);
-      console.log(`[Server] Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`[Server] Health check: http://localhost:${PORT}/health`);
-    });
-  }).catch((err) => {
-    console.error('[Server] Bootstrap failed:', err.message);
-    process.exit(1);
+  app.listen(PORT, () => {
+    console.log(`[Server] Running on port ${PORT}`);
+    console.log(`[Server] Health check: http://localhost:${PORT}/health`);
   });
-} else {
-  // Vercel — initialize on first request
-  const originalHandler = app;
-  
-  module.exports = async (req, res) => {
-    await initialize();
-    return originalHandler(req, res);
-  };
 }
 
-// Also export app for Vercel (module.exports may be overwritten above in production)
-if (process.env.NODE_ENV !== 'production') {
-  module.exports = app;
-}
+// ── Export for Vercel ─────────────────────────────────────────────────────────
+module.exports = app;
